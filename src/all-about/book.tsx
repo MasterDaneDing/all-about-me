@@ -15,7 +15,7 @@ import {
   type Sheet,
 } from "./model";
 import { PictureFrame, PictureStudio } from "./picture";
-import { giveToMrDane } from "./hand-in";
+import { giveToMrDane, teacherWordOk } from "./hand-in";
 import { buildPosterPdf } from "./pdf";
 
 const HANDED_KEY = "all-about-me-handed";
@@ -26,8 +26,8 @@ export function Book() {
   const [hint, setHint] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const [handed, setHanded] = useState(false);
-  const [askWord, setAskWord] = useState(false);
-  const [word, setWord] = useState("");
+  const [teacherOpen, setTeacherOpen] = useState(false);
+  const [teacherWord, setTeacherWord] = useState("");
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
@@ -70,21 +70,34 @@ export function Book() {
     setSheet((prev) => ({ ...prev, answers: { ...prev.answers, ...next } }));
   }
 
+  function unlockAgain() {
+    if (!teacherWordOk(teacherWord)) {
+      setHint("That is not the word.");
+      return;
+    }
+    try {
+      localStorage.removeItem(HANDED_KEY);
+    } catch {
+      /* This iPad can still give the page again during this sitting. */
+    }
+    setHanded(false);
+    setTeacherWord("");
+    setTeacherOpen(false);
+    setHint("Unlocked. Press Give to Mr. Dane again.");
+  }
+
   async function giveToDane() {
-    if (handed && !askWord) {
-      setAskWord(true);
-      setHint("Ask Mr. Dane for the word, then press the button again.");
+    if (handed) {
+      setTeacherOpen(true);
+      setHint("Ask Mr. Dane to unlock another save.");
       return;
     }
     setSending(true);
     setHint("");
     try {
       const file = await buildPosterPdf(sheet.answers.name);
-      const result = await giveToMrDane({
-        data: { pdfBase64: file.base64, fileName: file.fileName, again: handed, password: word },
-      });
+      const result = await giveToMrDane({ pdfBase64: file.base64, fileName: file.fileName });
       if (!result.ok) {
-        if (result.code === "password") setAskWord(true);
         setHint(result.message);
         return;
       }
@@ -94,8 +107,8 @@ export function Book() {
         /* The page was still given. */
       }
       setHanded(true);
-      setAskWord(false);
-      setWord("");
+      setTeacherOpen(false);
+      setTeacherWord("");
       setHint(result.message);
     } catch (error) {
       setHint(error instanceof Error ? error.message : "It did not send.");
@@ -239,24 +252,42 @@ export function Book() {
           </button>
         ) : (
           <>
-            {askWord ? (
-              <input
-                className="hand-word"
-                type="password"
-                value={word}
-                autoComplete="off"
-                autoCorrect="off"
-                spellCheck={false}
-                placeholder="Mr. Dane's word"
-                aria-label="Mr. Dane's word"
-                onChange={(event) => setWord(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") void giveToDane();
+            {teacherOpen ? (
+              <form
+                className="flex w-full flex-wrap items-center justify-center gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  unlockAgain();
                 }}
-              />
+              >
+                <input
+                  className="hand-word"
+                  type="password"
+                  value={teacherWord}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  placeholder="Teacher password"
+                  aria-label="Teacher password"
+                  onChange={(event) => setTeacherWord(event.target.value)}
+                />
+                <button type="submit" className="toy-go w-auto px-5">
+                  Unlock another save
+                </button>
+              </form>
             ) : null}
             <button type="button" className="toy-go w-auto px-5" disabled={sending} onClick={() => void giveToDane()}>
               {sending ? "Sending…" : handed ? "Give to Mr. Dane again" : "Give to Mr. Dane"}
+            </button>
+            <button
+              type="button"
+              className="toy-go toy-ghost w-auto px-5"
+              onClick={() => {
+                setTeacherOpen((open) => !open);
+                setHint("");
+              }}
+            >
+              Teacher
             </button>
             <button
               type="button"
@@ -268,8 +299,8 @@ export function Book() {
                   /* The next child can still hand in once. */
                 }
                 setHanded(false);
-                setAskWord(false);
-                setWord("");
+                setTeacherOpen(false);
+                setTeacherWord("");
                 setSheet(initialSheet());
                 setHint("");
               }}
